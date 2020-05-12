@@ -3,7 +3,7 @@
 // TODO: remove once refactored
 
 import { getState } from '../store';
-import { history } from '../helpers/router';
+import { history, getSearchParams } from '../helpers/router';
 
 class ConnectionsService {
   constructor() {
@@ -13,6 +13,8 @@ class ConnectionsService {
       this.addConnection(require('./thirdparty/facebook'));
       this._ga = this.addConnection(require('./thirdparty/ga'));
       this.addConnection(require('./thirdparty/mixpanel'));
+    } else {
+      this.addConnection(require('./thirdparty/debugconsole'));
     }
   }
 
@@ -21,21 +23,23 @@ class ConnectionsService {
     return i;
   }
 
-  track(eventName, paramObj) {
-    this.connections.forEach((conn) => {
-      try {
-        conn.track(eventName, paramObj);
-      } catch (err) { console.error(`External connection error: ${err}`); }
-    });
-  }
-
-  trackWithCurrentApplicationState(eventName) {
+  // TODO: Use sagas for this instead.
+  trackWithCurrentApplicationState(eventName, additionalData) {
     const appState = getState().application;
-    this.track(eventName, {
+    const data = {
       ...appState,
       bundleVersion: appState.bundleHash,
       embeddedUri: appState.isEmbedded ? document.referrer : null,
       currentPage: history.location.pathname.split('/')[1],
+      selectedZoneName: history.location.pathname.split('/')[2],
+      solarEnabled: getSearchParams().get('solar') === 'true',
+      windEnabled: getSearchParams().get('wind') === 'true',
+      ...additionalData,
+    };
+    this.connections.forEach((conn) => {
+      try {
+        conn.track(eventName, data);
+      } catch (err) { console.error(`External connection error: ${err}`); }
     });
   }
 
@@ -61,7 +65,7 @@ class ConnectionsService {
   // track errors
   trackError(e) {
     console.error(`Error Caught! ${e}`);
-    this.track('error', { ...getState().application, name: e.name, stack: e.stack });
+    this.trackWithCurrentApplicationState('error', { name: e.name, stack: e.stack });
     this.ga('event', 'exception', { description: e, fatal: false });
     this.reportToSentry(e);
   }
